@@ -1,0 +1,49 @@
+name: Validate and deploy production
+on:
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
+    workflow_dispatch:
+permissions:
+    contents: read
+concurrency:
+    group: pages-${{ github.ref }}
+    cancel-in-progress: true
+jobs:
+    validate:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: '22'
+                  cache: npm
+            - run: npm ci
+            - run: npm run format:check
+            - run: npm run lint
+            - run: npm test
+            - run: npx playwright install --with-deps chromium
+            - run: npm run test:ui
+            - run: npm run build
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: production-dist
+                  path: dist
+                  retention-days: 3
+    deploy:
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        needs: validate
+        runs-on: ubuntu-latest
+        environment: production
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/download-artifact@v4
+              with:
+                  name: production-dist
+                  path: dist
+            - uses: cloudflare/wrangler-action@v4
+              with:
+                  apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  command: pages deploy dist --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT_NAME || 'advanced-exif-frame' }} --branch=main --commit-hash=${{ github.sha }}

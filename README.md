@@ -1,1 +1,0 @@
-# advanced-exif-frame
